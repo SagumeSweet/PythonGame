@@ -20,8 +20,18 @@ GRAVITY = 1
 # 玩家跳跃速度
 PLAYER_JUMP_SPEED = 20
 
+# 滚动范围
+LEFT_VIEWPORT_MARGIN = 250
+RIGHT_VIEWPORT_MARGIN = 250
+BOTTOM_VIEWPORT_MARGIN = 50
+TOP_VIEWPORT_MARGIN = 100
+
 
 class Game1(arcade.Window):
+    """
+    安装并打开窗口
+    """
+
     def __init__(self):
         # 初始化父类并设置窗口
         super().__init__(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE)
@@ -42,6 +52,10 @@ class Game1(arcade.Window):
 
 
 class Game2(Game1):
+    """
+    添加精灵
+    """
+
     @override
     def __init__(self):
         super().__init__()
@@ -56,12 +70,11 @@ class Game2(Game1):
         self._player_list = None
         # 创建墙壁列表
         self._wall_list = None
-        # 创建金币列表
 
     @override
     def setup(self):
         """
-        有了 setup 方法，以后可以很容易地在游戏中添加“重启/再次玩”功能。调用setup 函数将重置所有内容
+        有了 setup 方法，以后可以很容易地在游戏中添加重置功能。调用setup函数将重置所有内容
         """
         # 创建玩家列表
         self._player_list = arcade.SpriteList()
@@ -100,11 +113,17 @@ class Game2(Game1):
 
 
 class Game3(Game2):
+    """
+    添加用户控制
+    """
     @override
     def __init__(self):
         super().__init__()
         # 创建物理引擎
         self._physics_engine = None
+        # 是否在按移动按键
+        self._is_left_moving = False
+        self._is_right_moving = False
 
     @override
     def setup(self):
@@ -119,8 +138,10 @@ class Game3(Game2):
         水平移动
         """
         if key == arcade.key.LEFT or key == arcade.key.A:
+            self._is_left_moving = True
             self._player_sprite.change_x = -PLAYER_MOVEMENT_SPEED
         elif key == arcade.key.RIGHT or key == arcade.key.D:
+            self._is_right_moving = True
             self._player_sprite.change_x = PLAYER_MOVEMENT_SPEED
 
     def _up_down_press(self, key: int):
@@ -142,19 +163,31 @@ class Game3(Game2):
         self._up_down_press(key)
         self._left_right_press(key)
 
+    def _on_left_right_release(self, key: int):
+        if key == arcade.key.LEFT or key == arcade.key.A and self._is_left_moving:
+            self._is_left_moving = False
+            if self._is_right_moving:
+                self._player_sprite.change_x = PLAYER_MOVEMENT_SPEED
+            else:
+                self._player_sprite.change_x = 0
+        elif key == arcade.key.RIGHT or key == arcade.key.D and self._is_right_moving:
+            self._is_right_moving = False
+            if self._is_left_moving:
+                self._player_sprite.change_x = -PLAYER_MOVEMENT_SPEED
+            else:
+                self._player_sprite.change_x = 0
+
+    def _on_up_down_release(self, key: int):
+        if key == arcade.key.UP or key == arcade.key.X or key == arcade.key.DOWN or key == arcade.key.S:
+            self._player_sprite.change_y = 0
+
     @override
     def on_key_release(self, key: int, modifiers: int):
         """
         键盘释放事件
         """
-        if key == arcade.key.UP or key == arcade.key.X:
-            self._player_sprite.change_y = 0
-        elif key == arcade.key.DOWN or key == arcade.key.S:
-            self._player_sprite.change_y = 0
-        elif key == arcade.key.LEFT or key == arcade.key.A:
-            self._player_sprite.change_x = 0
-        elif key == arcade.key.RIGHT or key == arcade.key.D:
-            self._player_sprite.change_x = 0
+        self._on_left_right_release(key)
+        self._on_up_down_release(key)
 
     @override
     def on_update(self, delta_time: float):
@@ -163,10 +196,17 @@ class Game3(Game2):
         """
         # 用物理引擎移动玩家
         self._physics_engine.update()
+        print(self._player_sprite.change_y)
+        if self._player_sprite.center_y < -1000:
+            self.setup()
         return super().on_update(delta_time)
 
 
 class Game4(Game3):
+    """
+    添加重力
+    """
+
     @override
     def setup(self):
         super().setup()
@@ -183,18 +223,15 @@ class Game4(Game3):
             self._player_sprite.change_y = -PLAYER_MOVEMENT_SPEED
 
     @override
-    def on_key_release(self, key: int, modifiers: int):
-        """
-        键盘释放事件
-        """
-        if (key == arcade.key.LEFT
-                or key == arcade.key.A
-                or key == arcade.key.RIGHT
-                or key == arcade.key.D):
-            self._player_sprite.change_x = 0
+    def _on_up_down_release(self, key: int):
+        pass
 
 
 class Game5(Game4):
+    """
+    添加滚动
+    """
+
     @override
     def __init__(self):
         super().__init__()
@@ -205,7 +242,14 @@ class Game5(Game4):
     def setup(self):
         super().setup()
         # 创建相机
-        self._camera = arcade.Camera2D()
+        self._camera = arcade.Camera2D(position=(self.width / 2, self.height / 2))
+
+    def _draw_world(self):
+        """
+        绘制世界
+        """
+        self._player_list.draw()
+        self._wall_list.draw()
 
     @override
     def on_draw(self):
@@ -214,18 +258,59 @@ class Game5(Game4):
         """
         self.clear()
         # 切换到相机
-        self._camera.use()
-        self._player_list.draw()
-        self._wall_list.draw()
+        with self._camera.activate():
+            # 绘制世界
+            self._draw_world()
 
     @override
     def on_update(self, delta_time: float):
         super().on_update(delta_time)
         # 更新相机
-        self._camera.position = self._player_sprite.position
+        self._camera.position = self._update_camera()
+
+    def _update_camera(self) -> tuple[float, float]:
+        """
+        根据玩家位置更新相机
+        """
+        # 获取玩家位置
+        player_x = self._player_sprite.center_x
+        player_y = self._player_sprite.center_y
+
+        # 相机位置
+        new_x: float = self._camera.position[0]
+        new_y: float = self._camera.position[1]
+
+        # 水平滚动
+        left_length: float = self.width / 2 - LEFT_VIEWPORT_MARGIN
+        right_length: float = self.width / 2 - RIGHT_VIEWPORT_MARGIN
+        left_max: float = new_x - left_length
+        # 玩家距离边界距离
+        distance: float = player_x - left_max
+
+        if distance < 0:
+            new_x = player_x + left_length
+        elif distance > left_length + right_length:
+            new_x = player_x - right_length
+
+        # 垂直滚动
+        top_length: float = self.height / 2 - TOP_VIEWPORT_MARGIN
+        bottom_length: float = self.height / 2 - BOTTOM_VIEWPORT_MARGIN
+        bottom_max: float = new_y - bottom_length
+        # 玩家距离边界距离
+        distance = player_y - bottom_max
+        if distance < 0:
+            new_y = player_y + bottom_length
+        elif distance > bottom_length + top_length:
+            new_y = player_y - top_length
+
+        return new_x, new_y
 
 
 class Game6(Game5):
+    """
+    添加硬币和声音
+    """
+
     @override
     def __init__(self):
         super().__init__()
@@ -279,12 +364,20 @@ class Game6(Game5):
         self._on_catch_coin(coin_hit_list)
 
     @override
-    def on_draw(self):
-        super().on_draw()
+    def _draw_world(self):
+        """
+        绘制世界
+        """
+        super()._draw_world()
+        # 绘制金币
         self._coin_list.draw()
 
 
 class Game7(Game6):
+    """
+    显示分数
+    """
+
     @override
     def __init__(self):
         super().__init__()
@@ -301,13 +394,20 @@ class Game7(Game6):
         self._score = 0
         self._score_text = arcade.Text(f"Score: {self._score}", x=0, y=5)
 
+    def _draw_gui(self):
+        """
+        绘制用户界面
+        """
+        # 绘制分数
+        self._score_text.draw()
+
     @override
     def on_draw(self):
         super().on_draw()
         # 切换到GUI相机
-        self._gui_camera.use()
-        # 渲染分数
-        self._score_text.draw()
+        with self._gui_camera.activate():
+            # 绘制用户界面
+            self._draw_gui()
 
     @override
     def _on_catch_coin(self, coin_hit_list: list[arcade.Sprite]):
